@@ -18,8 +18,9 @@ defmodule Chord do
   end
 
   @doc """
-  Start the Application
+  Start the Simulation Application
   """
-  def start() do
+  def start(_type, _args) do
+    Chord.SimulationSupervisor.start_link([])
   end
 end
