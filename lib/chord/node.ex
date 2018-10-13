@@ -7,6 +7,9 @@ defmodule Chord.Node do
   use GenServer
   require Logger
 
+  # Number of bits for the identifier
+  @m 160
+
   ###
   ###
   ### Client API
@@ -31,8 +34,13 @@ defmodule Chord.Node do
     GenServer.cast(node, {:join})
   end
 
+  @doc """
+  Chord.Node.find_successor
+
+  An API method to find the successor of a given id
+  """
   def find_successor(node, id) do
-    GenServer.cast(node, {:find_successor, id})
+    GenServer.call(node, {:find_successor, id})
   end
 
   ###
@@ -61,7 +69,7 @@ defmodule Chord.Node do
       do: raise(ArgumentError, message: "A ip address is required for a node to initiate")
 
     # Assign a identifier based on the ip address 
-    identifier = :crypto.hash(:sha, ip_addr) |> Base.encode16()
+    identifier = :crypto.hash(:sha, ip_addr) |> Base.encode16() |> binary_part(0, 2)
 
     # Get the location_server from the address
     location_server = Keyword.get(opts, :location_server)
@@ -75,13 +83,17 @@ defmodule Chord.Node do
 
     # Block storage server - responsible to read or write a block
 
+    # Finger table
+    finger_table = :ets.new(:finger_table, [:set, :protected])
+
     {:ok,
      [
        ip_addr: ip_addr,
        identifier: identifier,
        location_server: location_server,
        predeccesor: nil,
-       successor: nil
+       successor: nil,
+       finger_table: finger_table
      ]}
   end
 
@@ -97,20 +109,53 @@ defmodule Chord.Node do
     state =
       if !is_nil(chord_node) do
         state = Keyword.put(state, :predeccessor, nil)
-        Keyword.put(state, :successor, Chord.Node.find_successor(chord_node, self()))
+        successor = Chord.Node.find_successor(chord_node, state[:identifier])
+        Keyword.put(state, :successor, Chord.Node.find_successor(chord_node, state[:identifier]))
       else
         state = Keyword.put(state, :predeccessor, nil)
-        Keyword.put(state, :successor, state[:identifier])
+        succ_state = [identifier: state[:identifier], ip_addr: state[:ip_addr], pid: self()]
+        Keyword.put(state, :successor, succ_state)
       end
 
     {:noreply, state}
   end
 
+  @doc """
+  Chord.Node.handle_call for `:find_successor`
+
+  A callback to find the successor node for a sha id provided. Used in both `lookup(key)` and `n.join(n')` operations. In lookup it finds the successor for the `key` of the data. In join operation it find the node which should be the successor of that node.
+  """
   @impl true
   def handle_call({:find_successor, id}, _from, state) do
-    # if id lies between state[:idenfier] and state[:successor]
-    # return state[:successor]
-    # else
-    # return Chord.Node.find_successor(state[:successor], id)
+    if id < state[:successor][:identifier] do
+      {:reply, state[:successor], state}
+    else
+      {identifier, ip_addr, pid} = closest_preceding_node(id, state)
+
+      if pid != self() do
+        successor = Chord.Node.find_successor(pid, id)
+        {:reply, successor, state}
+      else
+        {:reply, state[:successor], state}
+      end
+    end
+  end
+
+  ###### PRIVATE FUNCTIONS ########
+
+  # Chord.Node.closest_preceding_node
+  # A helper function for `find_successor` callback implementation which
+  # iterates through the finger table to find the node which is closest
+  # predeccessor of the given id
+  defp closest_preceding_node(id, state) do
+    finger_table_entries = :ets.match_object(state[:finger_table], {:_, :_, :_})
+
+    Enum.each(finger_table_entries, fn {entry_identifier, entry_ip_addr, entry_pid} ->
+      if(entry_identifier >= state[:identifier] and entry_identifier <= id) do
+        {entry_identifier, entry_ip_addr, entry_pid}
+      end
+    end)
+
+    {state[:identifier], state[:ip_addr], self()}
   end
 end
