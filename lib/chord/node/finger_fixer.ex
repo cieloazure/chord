@@ -1,8 +1,10 @@
 defmodule Chord.Node.FingerFixer do
   require Logger
-  @mongering_interval 5000
+  @mongering_interval 2000
 
   @doc """
+  Chord.Node.FingerFixer.start
+
   Start the ticker for stabalizer
   Will keep receiving tick events of the form `{:tick, _index}` at every `@mongering_interval` time
   """
@@ -11,6 +13,8 @@ defmodule Chord.Node.FingerFixer do
   end
 
   @doc """
+  Chord.Node.FingerFixer.stop
+
   Stop the ticker for stabalizer
   Will send a event of `{:last_tick, index}` to the fact monger
   """
@@ -18,6 +22,14 @@ defmodule Chord.Node.FingerFixer do
     Ticker.stop(pid)
   end
 
+  @doc """
+  Chord.Node.FingerFixer.run
+
+  A method to run the receive loop. This method will receive various events like - 
+  *{:tick, _index} -> Receives a periodic event from `Ticker`
+  *{:fix_fingers, next, m, finger_table} -> Received when the node joins a chord network and needs to initialize its finger table
+  *{:update_finger_table, new_finger_table} -> Received when a finger table has been updated in the node and needs to be updated in this process as well
+  """
   def run(next, m, node_identifier, node_pid, finger_table, ticker_pid) do
     receive do
       {:tick, _index} = message ->

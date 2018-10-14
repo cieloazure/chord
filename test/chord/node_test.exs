@@ -50,6 +50,9 @@ defmodule Chord.NodeTest do
     test "finger table of the node initializes in which all entries point to the node itself",
          context do
       Chord.Node.join(context[:node])
+      Process.sleep(32000)
+      state = :sys.get_state(context[:node])
+      assert length(Map.keys(state[:finger_table])) == 16
     end
   end
 

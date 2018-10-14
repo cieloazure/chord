@@ -118,7 +118,11 @@ defmodule Chord.Node do
   @doc """
   Chord.Node.handle_cast for `:join`
 
-  A callback to get the node from the location server with which the successor of this node is found
+  This callback is responsible for a node joining a chord network or creating a chord network if it is the only one
+  It gets a node from the location server, if there is one,  with which the successor of this node is found
+  It also intiates the `FingerFixer` process to periodically check the finger table
+
+  Returns the new state of the node
   """
   @impl true
   def handle_cast({:join}, state) do
@@ -149,6 +153,8 @@ defmodule Chord.Node do
   Chord.Node.handle_cast for `:update_finger_table`
 
   A callback to handle the update of `state[:finger_table]` from  `Chord.Node.FingerFixer`. The `Chord.Node.FingerFixer` will run periodically and update the fingers in the finger table. The main node will update its state and pass on the new state to the `Chord.Node.FingerFixer` again which will use the new finger table to periodically run updates for the finger table 
+
+  Returns the new state of the node with the finger table updated
   """
   @impl true
   def handle_cast({:update_finger_table, new_finger_table}, state) do
