@@ -46,6 +46,11 @@ defmodule Chord.NodeTest do
                pid: context[:node]
              ]
     end
+
+    test "finger table of the node initializes in which all entries point to the node itself",
+         context do
+      Chord.Node.join(context[:node])
+    end
   end
 
   describe ": find_successor ->" do
@@ -55,6 +60,17 @@ defmodule Chord.NodeTest do
       {:ok, node} = Chord.Node.start_link(ip_addr: "127.0.0.1", location_server: location_server)
 
       [location_server: location_server, node: node]
+    end
+
+    test "when the node has come alive and not yet joined the chord network the call to `find_successor` should return `nil`",
+         context do
+      successor =
+        Chord.Node.find_successor(
+          context[:node],
+          "whyareyoulookingforsuccessoronanodewhichisnotconnected"
+        )
+
+      assert is_nil(successor)
     end
 
     test "when it the only node in the ring and `closest_preceding_node` will return the node itself then `find_successor` will return the node itself",

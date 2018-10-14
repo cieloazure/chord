@@ -1,6 +1,6 @@
 defmodule Chord.Node.FingerFixer do
   require Logger
-  @mongering_interval 1000
+  @mongering_interval 5000
 
   @doc """
   Start the ticker for stabalizer
@@ -18,28 +18,56 @@ defmodule Chord.Node.FingerFixer do
     Ticker.stop(pid)
   end
 
-  # def run(next, m, ticker_pid) do
-  # receive do
-  # {:tick, _index} = message ->
-  # next = next + 1
+  def run(next, m, node_identifier, node_pid, finger_table, ticker_pid) do
+    receive do
+      {:tick, _index} = message ->
+        Logger.debug(inspect(message))
+        next = next + 1
+        Logger.debug(next)
 
-  # successor =
-  # Chord.Node.find_successor(node[:pid], node[:identifier] + round(:math.pow(2, next - 1)))
+        next =
+          if next > m do
+            1
+          else
+            next
+          end
 
-  # Chord.Node.update_finger_table(node[:pid], successor)
+        next_finger_id =
+          :binary.encode_unsigned(
+            :crypto.bytes_to_integer(node_identifier) + round(:math.pow(2, next - 1))
+          )
 
-  # run(next + 1, m, ticker_pid)
+        successor =
+          Chord.Node.find_successor(
+            node_pid,
+            next_finger_id
+          )
 
-  # {:last_tick, _index} = message ->
-  # :ok
+        Logger.debug(inspect(next_finger_id))
 
-  # {:start_fix, next, m} ->
-  # ticker_pid = start(self())
-  # run(next, m, ticker_pid)
+        Logger.debug(inspect(successor))
 
-  # {:stop, _reason} ->
-  # stop(ticker_pid)
-  # run()
-  # end
-  # end
+        new_finger_table = Map.put(finger_table, {next - 1, next_finger_id}, successor)
+        Logger.debug(inspect(new_finger_table))
+        Chord.Node.update_finger_table(node_pid, new_finger_table)
+        run(next, m, node_identifier, node_pid, new_finger_table, ticker_pid)
+
+      {:fix_fingers, next, m, finger_table} ->
+        ticker_pid = start(self())
+        Logger.debug(inspect(ticker_pid))
+        run(next, m, node_identifier, node_pid, finger_table, ticker_pid)
+
+      {:update_finger_table, new_finger_table} ->
+        Logger.debug("updating finger table in finger fixer")
+        Logger.debug(inspect(new_finger_table))
+        run(next, m, node_identifier, node_pid, new_finger_table, ticker_pid)
+
+      {:last_tick, _index} ->
+        :ok
+
+      {:stop, _reason} ->
+        stop(ticker_pid)
+        run(next, m, node_identifier, node_pid, finger_table, ticker_pid)
+    end
+  end
 end
