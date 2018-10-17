@@ -22,7 +22,7 @@ use Mix.Config
 #
 case Mix.env() do
   :test ->
-    config :logger, level: :error
+    config :logger, level: :debug
 
   _ ->
     config :logger, level: :info

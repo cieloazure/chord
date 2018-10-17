@@ -1,6 +1,6 @@
 defmodule Chord.Node.FingerFixer do
   require Logger
-  @mongering_interval 5000
+  @mongering_interval 1000
 
   @doc """
   Chord.Node.FingerFixer.start
@@ -33,10 +33,14 @@ defmodule Chord.Node.FingerFixer do
   def run(next, m, node_identifier, node_pid, finger_table, ticker_pid) do
     receive do
       # Event: tick, a periodic tick received from Ticker
-      {:tick, _index} = message ->
-        Logger.info(inspect(message))
+      {:tick, _index} ->
         next = next + 1
-        Logger.info(next)
+
+        Logger.debug(
+          "FingerFixer tick for #{inspect(node_pid)}:#{inspect(node_identifier)} for entry #{
+            inspect(next)
+          }"
+        )
 
         next =
           if next > m do
@@ -46,9 +50,16 @@ defmodule Chord.Node.FingerFixer do
           end
 
         next_finger_id =
-          :binary.encode_unsigned(
-            :crypto.bytes_to_integer(node_identifier) + round(:math.pow(2, next - 1))
-          )
+          if is_binary(node_identifier) do
+            :binary.encode_unsigned(
+              rem(
+                :crypto.bytes_to_integer(node_identifier) + round(:math.pow(2, next - 1)),
+                round(:math.pow(2, m))
+              )
+            )
+          else
+            rem(node_identifier + round(:math.pow(2, next - 1)), round(:math.pow(2, m)))
+          end
 
         successor =
           Chord.Node.find_successor(
@@ -56,25 +67,19 @@ defmodule Chord.Node.FingerFixer do
             next_finger_id
           )
 
-        Logger.info(inspect(next_finger_id))
+        new_finger_table = Map.put(finger_table, {next, next_finger_id}, successor)
 
-        Logger.info(inspect(successor))
-
-        new_finger_table = Map.put(finger_table, {next - 1, next_finger_id}, successor)
-        Logger.info(inspect(new_finger_table))
         Chord.Node.update_finger_table(node_pid, new_finger_table)
         run(next, m, node_identifier, node_pid, new_finger_table, ticker_pid)
 
       # Event: Fix Fingers
-      {:fix_fingers, next, m, finger_table} ->
+      {:fix_fingers, next, finger_table} ->
         ticker_pid = start(self())
-        Logger.info(inspect(ticker_pid))
+
         run(next, m, node_identifier, node_pid, finger_table, ticker_pid)
 
       # Event: Update finger table
       {:update_finger_table, new_finger_table} ->
-        Logger.info("updating finger table in finger fixer")
-        Logger.info(inspect(new_finger_table))
         run(next, m, node_identifier, node_pid, new_finger_table, ticker_pid)
 
       # Event: Last tick

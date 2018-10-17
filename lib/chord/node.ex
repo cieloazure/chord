@@ -7,14 +7,13 @@ defmodule Chord.Node do
   use GenServer
   require Logger
 
-  # Number of bits for the identifier
-  @m 16
+  @default_number_of_bits 16
 
-  ###
-  ###
-  ### Client API
-  ###
-  ###
+  ###             ###
+  ###             ###
+  ### Client API  ###
+  ###             ###
+  ###             ###
 
   @doc """
   Chord.Node.start_link
@@ -81,7 +80,7 @@ defmodule Chord.Node do
 
   ###
   ###
-  ### GenServer Callbacks 
+  ###### GenServer Callbacks ######
   ###
   ###
 
@@ -99,6 +98,13 @@ defmodule Chord.Node do
   """
   @impl true
   def init(opts) do
+    # m
+    # Number of bits used to represent the identifier. In the default case,
+    # :crypto.hash(:sha, <ipaddress> | <data>) will give a 160 bit Bitstring
+    # For testing purpose we consider number_of_bits to be 3 in order to reduce
+    # the identifier space
+    number_of_bits = Keyword.get(opts, :number_of_bits) || @default_number_of_bits
+
     # Get the ip address from the opts
     ip_addr = Keyword.get(opts, :ip_addr)
 
@@ -107,7 +113,9 @@ defmodule Chord.Node do
       do: raise(ArgumentError, message: "A ip address is required for a node to initiate")
 
     # Assign a identifier based on the ip address 
-    identifier = :crypto.hash(:sha, ip_addr) |> binary_part(0, 2)
+    identifier =
+      Keyword.get(opts, :identifier) ||
+        :crypto.hash(:sha, ip_addr) |> binary_part(0, div(number_of_bits, 8))
 
     # Get the location_server from the address
     location_server = Keyword.get(opts, :location_server)
@@ -116,22 +124,22 @@ defmodule Chord.Node do
       do:
         raise(ArgumentError, message: "A Location Server is required for joining a chord network")
 
-    # Distributed Hash table - responsible for storing, caching and replication
-    # of blocks 
-
-    # Block storage server - responsible to read or write a block
-
     # Finger table
     finger_table = %{}
 
     # finger_fixer
     finger_fixer =
-      spawn(Chord.Node.FingerFixer, :run, [-1, @m, identifier, self(), finger_table, nil])
+      spawn(Chord.Node.FingerFixer, :run, [
+        -1,
+        number_of_bits,
+        identifier,
+        self(),
+        finger_table,
+        nil
+      ])
 
     # stabalizer
     stabalizer = spawn(Chord.Node.Stabalizer, :run, [nil, identifier, ip_addr, self(), nil])
-
-    Logger.info(inspect(finger_fixer))
 
     {:ok,
      [
@@ -157,39 +165,30 @@ defmodule Chord.Node do
   """
   @impl true
   def handle_cast({:join}, state) do
+    Logger.debug("Join from #{inspect(self())}:#{inspect(state[:ip_addr])}")
     # Get the random node from the location server
     chord_node = Chord.LocationServer.node_request(state[:location_server], state[:ip_addr])
-    Logger.info(inspect(chord_node))
+    # Logger.info(inspect(chord_node))
 
     # Check if the node exists, if it does then ask that node to find
     # a successor for this node
     # else create a new chord network
     state =
       if !is_nil(chord_node) do
+        # Predeccessor is nil
         state = Keyword.put(state, :predeccessor, nil)
+
         {chord_node, _ip_addr} = chord_node
         successor = Chord.Node.find_successor(chord_node, state[:identifier])
-
-        if successor[:identifier] > state[:identifier] do
-          Keyword.put(state, :successor, successor)
-        else
-          Chord.Node.update_successor(successor[:pid],
-            identifier: state[:identifier],
-            ip_addr: state[:ip_addr],
-            pid: self()
-          )
-
-          succ_state = [identifier: state[:identifier], ip_addr: state[:ip_addr], pid: self()]
-          Keyword.put(state, :successor, succ_state)
-        end
+        Keyword.put(state, :successor, successor)
       else
         state = Keyword.put(state, :predeccessor, nil)
         succ_state = [identifier: state[:identifier], ip_addr: state[:ip_addr], pid: self()]
         Keyword.put(state, :successor, succ_state)
       end
 
-    # Update the finger table for this newly created node
-    send(state[:finger_fixer], {:fix_fingers, 0, @m, state[:finger_table]})
+    # Initialize the finger table for this newly created node
+    send(state[:finger_fixer], {:fix_fingers, 0, state[:finger_table]})
 
     # Start the stabalizer for this newly created node
     send(state[:stabalizer], {:run_stabalizer, state[:successor]})
@@ -220,11 +219,13 @@ defmodule Chord.Node do
   """
   @impl true
   def handle_cast({:notify, new_predeccessor}, state) do
-    Logger.debug("Updating predeccessor via notify for #{inspect(self())}")
-
     state =
       if is_nil(state[:predeccessor]) or
-           (new_predeccessor >= state[:predeccessor] and new_predeccessor <= state[:identifier]) do
+           CircularIdentifierSpace.open_interval_check(
+             new_predeccessor[:identifier],
+             state[:predeccessor][:identifier],
+             state[:identifier]
+           ) do
         Keyword.put(state, :predeccessor, new_predeccessor)
       else
         state
@@ -240,10 +241,19 @@ defmodule Chord.Node do
   """
   @impl true
   def handle_cast({:update_successor, new_successor}, state) do
-    Logger.debug("Updating successor for #{inspect(self())}")
     state = Keyword.put(state, :successor, new_successor)
     send(state[:stabalizer], {:update_successor, new_successor})
     {:noreply, state}
+  end
+
+  @doc """
+  Chord.Node.handle_call for `:get_predeccessor`
+
+  A callback to get the predeccessor of the node. This is needed in stabalizer in order to change the successor if a new node has joined
+  """
+  @impl true
+  def handle_call({:get_predeccessor}, _from, state) do
+    {:reply, state[:predeccessor], state}
   end
 
   @doc """
@@ -260,34 +270,29 @@ defmodule Chord.Node do
     if is_nil(state[:successor]) do
       {:reply, nil, state}
     else
-      if id < state[:successor][:identifier] do
-        Logger.info("id #{inspect(id)} is less than node's successor(which may be node itself)")
+      if CircularIdentifierSpace.half_open_interval_check(
+           id,
+           state[:identifier],
+           state[:successor][:identifier]
+         ) do
         {:reply, state[:successor], state}
       else
-        Logger.info(
-          "id #{inspect(id)} is greater than node's successor(which may be node itself), finding closest preceding node"
-        )
+        preceding_node = closest_preceding_node(id, state)
 
-        {_identifier, _ip_addr, pid} = closest_preceding_node(id, state)
+        if preceding_node[:pid] == self() do
+          self_successor = [
+            identifier: state[:identifier],
+            ip_addr: state[:ip_addr],
+            pid: self()
+          ]
 
-        if pid != self() do
-          successor = Chord.Node.find_successor(pid, id)
-          {:reply, successor, state}
+          {:reply, self_successor, state}
         else
-          {:reply, state[:successor], state}
+          successor = Chord.Node.find_successor(preceding_node[:pid], id)
+          {:reply, successor, state}
         end
       end
     end
-  end
-
-  @doc """
-  Chord.Node.handle_call for `:get_predeccessor`
-
-  A callback to get the predecessor of the node. This is needed in stabalizer in order to change the successor if a new node has joined
-  """
-  @impl true
-  def handle_call({:get_predeccessor}, _from, state) do
-    {:reply, state[:predeccessor], state}
   end
 
   ###### PRIVATE FUNCTIONS ########
@@ -304,22 +309,14 @@ defmodule Chord.Node do
                                             ip_addr: _entry_ip_addr,
                                             pid: _entry_pid
                                           ]} ->
-        entry_identifier >= state[:identifier] and entry_identifier <= id
+        CircularIdentifierSpace.open_interval_check(entry_identifier, state[:identifier], id)
       end)
 
     if !is_nil(item) do
-      {key,
-       [
-         identifier: identifier,
-         ip_addr: ip_addr,
-         pid: pid
-       ]} = item
-
-      Logger.info("Closest preceding node found in finger table is #{inspect(key)}")
-      {identifier, ip_addr, pid}
+      {_key, value} = item
+      value
     else
-      Logger.info("No closest preceding node found in finger table, returning the node itself")
-      {state[:identifier], state[:ip_addr], self()}
+      [identifier: state[:identifier], ip_addr: state[:ip_addr], pid: self()]
     end
   end
 end
