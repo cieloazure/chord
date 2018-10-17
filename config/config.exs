@@ -20,6 +20,13 @@ use Mix.Config
 #
 #     config :logger, level: :info
 #
+case Mix.env() do
+  :test ->
+    config :logger, level: :debug
+
+  _ ->
+    config :logger, level: :info
+end
 
 # It is also possible to import configuration files, relative to this
 # directory. For example, you can emulate configuration per environment

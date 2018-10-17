@@ -4,7 +4,7 @@ defmodule Chord.Node.DistributedHashTable do
     # Chord.Node.initiate_chord
   end
 
-  def insert(data) do
+  def insert(_data) do
     # Get a unique key for the data
     #
     # Find a node responsible for storing the key
@@ -15,7 +15,7 @@ defmodule Chord.Node.DistributedHashTable do
     # with that key
   end
 
-  def lookup(key) do
+  def lookup(_key) do
     # Chord.Node.find_successor(key)
     #
   end

@@ -62,7 +62,9 @@ defmodule Chord.LocationServer do
       chord_nodes = Map.put(chord_nodes, from_pid, ip_address)
       {:reply, nil, chord_nodes}
     else
-      {:reply, Enum.random(chord_nodes), chord_nodes}
+      node = Enum.random(chord_nodes)
+      chord_nodes = Map.put(chord_nodes, from_pid, ip_address)
+      {:reply, node, chord_nodes}
     end
   end
 end
