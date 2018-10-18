@@ -1,6 +1,6 @@
 defmodule Chord.Node.FingerFixer do
   require Logger
-  @mongering_interval 1000
+  @mongering_interval 500
 
   @doc """
   Chord.Node.FingerFixer.start
@@ -27,7 +27,7 @@ defmodule Chord.Node.FingerFixer do
 
   A method to run the receive loop. This method will receive various events like - 
   *{:tick, _index} -> Receives a periodic event from `Ticker`
-  *{:fix_fingers, next, m, finger_table} -> Received when the node joins a chord network and needs to initialize its finger table
+  *{:fix_fingers, next, finger_table} -> Received when the node joins a chord network and needs to initialize its finger table
   *{:update_finger_table, new_finger_table} -> Received when a finger table has been updated in the node and needs to be updated in this process as well
   """
   def run(next, m, node_identifier, node_pid, finger_table, ticker_pid) do
@@ -35,12 +35,6 @@ defmodule Chord.Node.FingerFixer do
       # Event: tick, a periodic tick received from Ticker
       {:tick, _index} ->
         next = next + 1
-
-        Logger.debug(
-          "FingerFixer tick for #{inspect(node_pid)}:#{inspect(node_identifier)} for entry #{
-            inspect(next)
-          }"
-        )
 
         next =
           if next > m do

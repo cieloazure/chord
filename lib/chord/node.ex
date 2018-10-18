@@ -7,7 +7,7 @@ defmodule Chord.Node do
   use GenServer
   require Logger
 
-  @default_number_of_bits 16
+  @default_number_of_bits 160
 
   ###             ###
   ###             ###
@@ -78,11 +78,38 @@ defmodule Chord.Node do
     GenServer.cast(node, {:update_successor, new_successor})
   end
 
-  ###
-  ###
-  ###### GenServer Callbacks ######
-  ###
-  ###
+  @doc """
+  Chord.Node.read
+
+  An api method to read the data on the node
+  """
+  def lookup(node, key) do
+    GenServer.call(node, {:lookup, key})
+  end
+
+  @doc """
+  Chord.Node.write
+
+  An api method to write the data on node
+  """
+  def insert(node, key, data) do
+    GenServer.call(node, {:insert, key, data})
+  end
+
+  @doc """
+  Chord.Node.transfer_keys
+
+  An api method to transfer keys belonging to the predeccessor
+  """
+  def transfer_keys(node, predeccessor_identifier, predeccessor_pid) do
+    GenServer.cast(node, {:transfer_keys, predeccessor_identifier, predeccessor_pid})
+  end
+
+  ###                      ###
+  ###                      ###
+  ### GenServer Callbacks  ###
+  ###                      ###
+  ###                      ###
 
   @doc """
   Chord.Node.init
@@ -95,10 +122,11 @@ defmodule Chord.Node do
   * successor of the node
   * finger table
   * pid of finger fixer
+  * pid of stabalizer
   """
   @impl true
   def init(opts) do
-    # m
+    # The variable `m` in the original paper
     # Number of bits used to represent the identifier. In the default case,
     # :crypto.hash(:sha, <ipaddress> | <data>) will give a 160 bit Bitstring
     # For testing purpose we consider number_of_bits to be 3 in order to reduce
@@ -141,6 +169,9 @@ defmodule Chord.Node do
     # stabalizer
     stabalizer = spawn(Chord.Node.Stabalizer, :run, [nil, identifier, ip_addr, self(), nil])
 
+    # block storage server
+    {:ok, block_storage_server} = Chord.Node.BlockStorageServer.start_link(node: self())
+
     {:ok,
      [
        ip_addr: ip_addr,
@@ -150,7 +181,8 @@ defmodule Chord.Node do
        successor: nil,
        finger_table: finger_table,
        finger_fixer: finger_fixer,
-       stabalizer: stabalizer
+       stabalizer: stabalizer,
+       block_storage_server: block_storage_server
      ]}
   end
 
@@ -165,7 +197,6 @@ defmodule Chord.Node do
   """
   @impl true
   def handle_cast({:join}, state) do
-    Logger.debug("Join from #{inspect(self())}:#{inspect(state[:ip_addr])}")
     # Get the random node from the location server
     chord_node = Chord.LocationServer.node_request(state[:location_server], state[:ip_addr])
     # Logger.info(inspect(chord_node))
@@ -186,6 +217,11 @@ defmodule Chord.Node do
         succ_state = [identifier: state[:identifier], ip_addr: state[:ip_addr], pid: self()]
         Keyword.put(state, :successor, succ_state)
       end
+
+    # keys from successor which belong to us
+    if state[:successor][:pid] != self() do
+      capture_successor_keys(state[:successor][:pid], state[:identifier], self())
+    end
 
     # Initialize the finger table for this newly created node
     send(state[:finger_fixer], {:fix_fingers, 0, state[:finger_table]})
@@ -247,6 +283,26 @@ defmodule Chord.Node do
   end
 
   @doc """
+  Chord.Node.handle_cast for `:transfer_keys`
+
+  A callback to transfer keys belonging to our predeccessor and remove those keys from our storage
+  """
+  @impl true
+  def handle_cast({:transfer_keys, identifier, predeccessor}, state) do
+    items =
+      Chord.Node.BlockStorageServer.query(state[:block_storage_server], fn {k, _v} ->
+        k <= identifier
+      end)
+
+    Enum.each(items, fn {key, value} ->
+      Chord.Node.BlockStorageServer.delete(state[:block_storage_server], key)
+      Chord.Node.insert(predeccessor, key, value)
+    end)
+
+    {:noreply, state}
+  end
+
+  @doc """
   Chord.Node.handle_call for `:get_predeccessor`
 
   A callback to get the predeccessor of the node. This is needed in stabalizer in order to change the successor if a new node has joined
@@ -254,6 +310,32 @@ defmodule Chord.Node do
   @impl true
   def handle_call({:get_predeccessor}, _from, state) do
     {:reply, state[:predeccessor], state}
+  end
+
+  @doc """
+  Chord.Node.handle_call for `:write`
+
+  A callback to write the data on the node using block storage server
+  """
+  @impl true
+  def handle_call({:insert, key, data}, _from, state) do
+    store = Keyword.get(state, :block_storage_server)
+    reply = Chord.Node.BlockStorageServer.write(store, key, data)
+    {:reply, reply, state}
+  end
+
+  @doc """
+  Chord.Node.handle_call for `:read`
+
+  A callback to read the data on the node using block storage server
+  """
+  @impl true
+  def handle_call({:lookup, key}, _from, state) do
+    store = Keyword.get(state, :block_storage_server)
+    item = Chord.Node.BlockStorageServer.read(store, key)
+
+    {:reply, {item, [identifier: state[:identifier], ip_addr: state[:ip_addr], pid: self()]},
+     state}
   end
 
   @doc """
@@ -318,5 +400,11 @@ defmodule Chord.Node do
     else
       [identifier: state[:identifier], ip_addr: state[:ip_addr], pid: self()]
     end
+  end
+
+  # Chord.Node.capture_successor_keys
+  # A helper function to transfer keys belonging to us from successor 
+  defp capture_successor_keys(successor_pid, our_identifier, our_pid) do
+    Chord.Node.transfer_keys(successor_pid, our_identifier, our_pid)
   end
 end

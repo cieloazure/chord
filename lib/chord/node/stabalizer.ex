@@ -1,6 +1,6 @@
 defmodule Chord.Node.Stabalizer do
   require Logger
-  @mongering_interval 1000
+  @mongering_interval 500
 
   @doc """
   Chord.Node.Stabalizer.start 
@@ -36,8 +36,6 @@ defmodule Chord.Node.Stabalizer do
     receive do
       # Event: tick
       {:tick, _index} ->
-        Logger.debug("Stabalizer tick for #{inspect(node_pid)}:#{node_identifier}")
-
         old_successor = node_successor
         # x = successor.predeccessor
         predeccessor_of_successor = Chord.Node.get_predeccessor(node_successor[:pid])
