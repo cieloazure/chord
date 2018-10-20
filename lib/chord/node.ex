@@ -39,7 +39,7 @@ defmodule Chord.Node do
   An API method to find the successor of a given id
   """
   def find_successor(node, id, hops) do
-    GenServer.call(node, {:find_successor, id, hops}, 30_000)
+    GenServer.call(node, {:find_successor, id, hops})
   end
 
   @doc """

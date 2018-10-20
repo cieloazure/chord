@@ -6,10 +6,10 @@ defmodule Simulation do
     {:ok, location_server} = Chord.LocationServer.start_link([])
 
     # bits or m
-    number_of_bits = 16
+    number_of_bits = 40
     # create `numNodes` number of nodes
     api_list =
-      for _n <- 0..numNodes do
+      for _n <- 0..(numNodes - 1) do
         {:ok, api} =
           Chord.API.start_link(
             ip_addr: get_ip_addr(),
@@ -17,13 +17,19 @@ defmodule Simulation do
             number_of_bits: number_of_bits
           )
 
+        Process.sleep(2000)
         api
       end
 
     node_list =
       Enum.map(api_list, fn api ->
-        :sys.get_state(api)
+        {node, _} = :sys.get_state(api)
+        # :sys.statistics(node, true)
+        # :sys.trace(node, true)
+        node
       end)
+
+    {api_list, node_list}
 
     # create dummy database and insert that data into the chord network using
     # random nodes
