@@ -36,8 +36,8 @@ defmodule Chord.API do
 
   Lookup the data in the chord network
   """
-  def lookup(api, data) do
-    GenServer.call(api, {:lookup, data})
+  def lookup(api, data, identifier \\ nil) do
+    GenServer.call(api, {:lookup, data, identifier})
   end
 
   ###                      ###
@@ -81,7 +81,7 @@ defmodule Chord.API do
     key = identifier || :crypto.hash(:sha, data)
 
     # Find a node responsible for storing the key
-    successor = Chord.Node.find_successor(node, key)
+    {successor, _hops} = Chord.Node.find_successor(node, key, 0)
 
     # Successor may be node itself or some other node in the ring
     # Write the data using block storage server of that node
@@ -95,15 +95,15 @@ defmodule Chord.API do
   Calculates the hash for the data and finds the node it resides on 
   """
   @impl true
-  def handle_call({:lookup, data}, _from, node) do
+  def handle_call({:lookup, data, identifier}, _from, node) do
     # Get the hash value for the data
-    key = :crypto.hash(:sha, data)
+    key = identifier || :crypto.hash(:sha, data)
 
     # Find the node
-    successor = Chord.Node.find_successor(node, key)
+    {successor, hops} = Chord.Node.find_successor(node, key, 0)
 
     # Read  the data using block storage server of that node
     {item, from} = Chord.Node.lookup(successor[:pid], key)
-    {:reply, {item, from}, node}
+    {:reply, {item, from, hops}, node}
   end
 end

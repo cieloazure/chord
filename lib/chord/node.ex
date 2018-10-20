@@ -38,8 +38,8 @@ defmodule Chord.Node do
 
   An API method to find the successor of a given id
   """
-  def find_successor(node, id) do
-    GenServer.call(node, {:find_successor, id})
+  def find_successor(node, id, hops) do
+    GenServer.call(node, {:find_successor, id, hops}, 30_000)
   end
 
   @doc """
@@ -210,7 +210,7 @@ defmodule Chord.Node do
         state = Keyword.put(state, :predeccessor, nil)
 
         {chord_node, _ip_addr} = chord_node
-        successor = Chord.Node.find_successor(chord_node, state[:identifier])
+        {successor, _hops} = Chord.Node.find_successor(chord_node, state[:identifier], 0)
         Keyword.put(state, :successor, successor)
       else
         state = Keyword.put(state, :predeccessor, nil)
@@ -348,7 +348,8 @@ defmodule Chord.Node do
   Returns the `successor` which it finds after delegating it to what it thinks is the  `closest_preceding_node` of the id in which case the `closest_preceding_node` takes the responsiblity of finding the successor
   """
   @impl true
-  def handle_call({:find_successor, id}, _from, state) do
+  def handle_call({:find_successor, id, hops}, _from, state) do
+    # Check if connected to chord 
     if is_nil(state[:successor]) do
       {:reply, nil, state}
     else
@@ -357,7 +358,7 @@ defmodule Chord.Node do
            state[:identifier],
            state[:successor][:identifier]
          ) do
-        {:reply, state[:successor], state}
+        {:reply, {state[:successor], hops}, state}
       else
         preceding_node = closest_preceding_node(id, state)
 
@@ -368,10 +369,11 @@ defmodule Chord.Node do
             pid: self()
           ]
 
-          {:reply, self_successor, state}
+          {:reply, {self_successor, hops}, state}
         else
-          successor = Chord.Node.find_successor(preceding_node[:pid], id)
-          {:reply, successor, state}
+          hops = hops + 1
+          {successor, hops} = Chord.Node.find_successor(preceding_node[:pid], id, hops)
+          {:reply, {successor, hops}, state}
         end
       end
     end
@@ -385,12 +387,13 @@ defmodule Chord.Node do
   # predeccessor of the given id
   defp closest_preceding_node(id, state) do
     item =
-      Enum.find(state[:finger_table], fn {_idx,
-                                          [
-                                            identifier: entry_identifier,
-                                            ip_addr: _entry_ip_addr,
-                                            pid: _entry_pid
-                                          ]} ->
+      Enum.reverse(state[:finger_table])
+      |> Enum.find(fn {_idx,
+                       [
+                         identifier: entry_identifier,
+                         ip_addr: _entry_ip_addr,
+                         pid: _entry_pid
+                       ]} ->
         CircularIdentifierSpace.open_interval_check(entry_identifier, state[:identifier], id)
       end)
 

@@ -132,6 +132,57 @@ defmodule Chord.APITest do
         Logger.debug(inspect(block_store))
       end)
     end
+
+    test "check the hops" do
+      {:ok, location_server} = Chord.LocationServer.start_link([])
+      identifiers = [1, 8, 14, 21, 32, 38, 42, 48, 51, 56]
+      number_of_bits = 8
+
+      data_identifier = [10, 24, 30, 38, 54]
+
+      apis =
+        Enum.map(identifiers, fn identifier ->
+          {:ok, api} =
+            Chord.API.start_link(
+              ip_addr: get_ip_addr(),
+              location_server: location_server,
+              identifier: identifier,
+              number_of_bits: number_of_bits
+            )
+
+          api
+        end)
+
+      Process.sleep(10000)
+
+      nodes =
+        Enum.map(apis, fn api ->
+          state = :sys.get_state(api)
+          node_state = :sys.get_state(state)
+          state
+        end)
+
+      Enum.each(data_identifier, fn data ->
+        r = Enum.random(apis)
+        n = :sys.get_state(r)
+        ns = :sys.get_state(n)
+        Chord.API.insert(r, get_random_string(), data)
+      end)
+
+      Process.sleep(10000)
+
+      api_8 = Enum.at(apis, 1)
+      node_8 = :sys.get_state(api_8)
+      node_8_state = :sys.get_state(node_8)
+      {data, from, hops} = Chord.API.lookup(Enum.at(apis, 1), "dummy_data", 54)
+      assert hops == 2
+    end
+
+    test "something" do
+      {:ok, location_server} = Chord.LocationServer.start_link([])
+      {:ok, api} = Chord.API.start_link(ip_addr: "192.168.0.1", location_server: location_server)
+      Process.sleep(100_000_000)
+    end
   end
 
   def get_ip_addr() do
