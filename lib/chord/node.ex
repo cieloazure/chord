@@ -84,7 +84,7 @@ defmodule Chord.Node do
   An api method to read the data on the node
   """
   def lookup(node, key) do
-    GenServer.call(node, {:lookup, key})
+    GenServer.call(node, {:lookup, key}, :infinity)
   end
 
   @doc """
@@ -210,7 +210,13 @@ defmodule Chord.Node do
         state = Keyword.put(state, :predeccessor, nil)
 
         {chord_node, _ip_addr} = chord_node
-        {successor, _hops} = Chord.Node.find_successor(chord_node, state[:identifier], 0)
+        _reply = Chord.Node.find_successor(chord_node, state[:identifier], 0)
+
+        {successor, _hops} =
+          receive do
+            {:successor, {successor, hops}} -> {successor, hops}
+          end
+
         Keyword.put(state, :successor, successor)
       else
         state = Keyword.put(state, :predeccessor, nil)
@@ -348,35 +354,9 @@ defmodule Chord.Node do
   Returns the `successor` which it finds after delegating it to what it thinks is the  `closest_preceding_node` of the id in which case the `closest_preceding_node` takes the responsiblity of finding the successor
   """
   @impl true
-  def handle_call({:find_successor, id, hops}, _from, state) do
-    # Check if connected to chord 
-    if is_nil(state[:successor]) do
-      {:reply, nil, state}
-    else
-      if CircularIdentifierSpace.half_open_interval_check(
-           id,
-           state[:identifier],
-           state[:successor][:identifier]
-         ) do
-        {:reply, {state[:successor], hops}, state}
-      else
-        preceding_node = closest_preceding_node(id, state)
-
-        if preceding_node[:pid] == self() do
-          self_successor = [
-            identifier: state[:identifier],
-            ip_addr: state[:ip_addr],
-            pid: self()
-          ]
-
-          {:reply, {self_successor, hops}, state}
-        else
-          hops = hops + 1
-          {successor, hops} = Chord.Node.find_successor(preceding_node[:pid], id, hops)
-          {:reply, {successor, hops}, state}
-        end
-      end
-    end
+  def handle_call({:find_successor, id, hops}, from, state) do
+    _pid = spawn(Chord.Node, :find_successor_concurrent, [id, hops, from, state, self()])
+    {:reply, :ok, state}
   end
 
   ###### PRIVATE FUNCTIONS ########
@@ -409,5 +389,62 @@ defmodule Chord.Node do
   # A helper function to transfer keys belonging to us from successor 
   defp capture_successor_keys(successor_pid, our_identifier, our_pid) do
     Chord.Node.transfer_keys(successor_pid, our_identifier, our_pid)
+  end
+
+  def find_successor_concurrent(id, hops, {pid, _ref}, state, our_pid) do
+    # Check if connected to chord 
+    if is_nil(state[:successor]) do
+      send(pid, {:successor, {nil, hops}})
+      # {:reply, nil, state}
+    else
+      if CircularIdentifierSpace.half_open_interval_check(
+           id,
+           state[:identifier],
+           state[:successor][:identifier]
+         ) do
+        # {:reply, {state[:successor], hops}, state}
+        send(pid, {:successor, {state[:successor], hops}})
+      else
+        # preceding_node = closest_preceding_node(id, state)
+        item =
+          Enum.reverse(state[:finger_table])
+          |> Enum.find(fn {_idx,
+                           [
+                             identifier: entry_identifier,
+                             ip_addr: _entry_ip_addr,
+                             pid: _entry_pid
+                           ]} ->
+            CircularIdentifierSpace.open_interval_check(entry_identifier, state[:identifier], id)
+          end)
+
+        preceding_node =
+          if !is_nil(item) do
+            {_key, value} = item
+            value
+          else
+            [identifier: state[:identifier], ip_addr: state[:ip_addr], pid: our_pid]
+          end
+
+        if preceding_node[:pid] == our_pid do
+          self_successor = [
+            identifier: state[:identifier],
+            ip_addr: state[:ip_addr],
+            pid: our_pid
+          ]
+
+          send(pid, {:successor, {self_successor, hops}})
+          # {:reply, {self_successor, hops}, state}
+        else
+          hops = hops + 1
+          _reply = Chord.Node.find_successor(preceding_node[:pid], id, hops)
+
+          # {:reply, {successor, hops}, state}
+          receive do
+            {:successor, {successor, hops}} ->
+              send(pid, {:successor, {successor, hops}})
+          end
+        end
+      end
+    end
   end
 end

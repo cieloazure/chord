@@ -1,6 +1,6 @@
 defmodule Chord.Node.FingerFixer do
   require Logger
-  @mongering_interval 1000
+  @mongering_interval 100
 
   @doc """
   Chord.Node.FingerFixer.start
@@ -55,18 +55,24 @@ defmodule Chord.Node.FingerFixer do
             rem(node_identifier + round(:math.pow(2, next - 1)), round(:math.pow(2, m)))
           end
 
-        {successor, _hops} =
+        _reply =
           Chord.Node.find_successor(
             node_pid,
             next_finger_id,
             0
           )
 
+        {successor, _hops} =
+          receive do
+            {:successor, {successor, hops}} -> {successor, hops}
+          end
+
         new_finger_table = Map.put(finger_table, {next, next_finger_id}, successor)
 
         new_finger_table =
           if new_finger_table != finger_table do
             Chord.Node.update_finger_table(node_pid, new_finger_table)
+            finger_table
           else
             finger_table
           end
