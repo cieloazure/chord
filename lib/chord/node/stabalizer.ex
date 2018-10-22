@@ -1,6 +1,6 @@
 defmodule Chord.Node.Stabalizer do
   require Logger
-  @mongering_interval 500
+  @mongering_interval 50
 
   @doc """
   Chord.Node.Stabalizer.start 
