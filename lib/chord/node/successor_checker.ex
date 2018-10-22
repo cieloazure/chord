@@ -1,4 +1,4 @@
-defmodule Chord.Node.PredecessorChecker do
+defmodule Chord.Node.SuccessorChecker do
   require Logger
   @mongering_interval 1000
 
@@ -22,16 +22,16 @@ defmodule Chord.Node.PredecessorChecker do
     receive do
       {:tick, _index} ->
         try do
-          _response = Chord.Node.ping_predeccessor(node_pid)
+          _response = Chord.Node.ping_successor(node_pid)
         catch
           :exit, _ ->
-            IO.inspect("#{node_pid} caught pred timeout")
-            Chord.Node.failed_predecessor(node_pid)
+            IO.inspect("#{node_pid} caught timeout")
+            Chord.Node.failed_successor(node_pid)
         end
 
         run(node_pid, ticker_pid)
 
-      {:run_pred_checker} ->
+      {:run_succ_checker} ->
         ticker_pid = start(self())
         run(node_pid, ticker_pid)
 

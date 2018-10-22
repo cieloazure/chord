@@ -120,4 +120,10 @@ defmodule Chord.API do
     send(pid, {:lookup_result, {item, from, hops}})
     {:noreply, {node, number_of_bits}}
   end
+
+  @impl true
+  def terminate(_reason, {node, _}) do
+    IO.inspect("Terminating api")
+    Process.exit(node, :normal)
+  end
 end

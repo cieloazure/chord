@@ -35,15 +35,28 @@ defmodule SimulationSupervisor do
 
   Starts the node in a network
   """
-  def start_node(supervisor, location_server) do
+  def start_nodes(supervisor, location_server, num_nodes \\ 10, number_of_bits \\ 24) do
     # Generate random ip address
-    ip_addr = get_ip_addr()
-    Logger.info("Initiaing node with ip address -> " <> ip_addr)
     # Come alive with that ip address
-    DynamicSupervisor.start_child(
-      supervisor,
-      {Chord.Node, [ip_addr: ip_addr, location_server: location_server]}
-    )
+    for n <- 1..num_nodes do
+      ip_addr = get_ip_addr()
+      Logger.info("Initiaing node with ip address -> " <> ip_addr)
+
+      {:ok, api} =
+        DynamicSupervisor.start_child(
+          supervisor,
+          {Chord.API,
+           [
+             ip_addr: ip_addr,
+             location_server: location_server,
+             number_of_bits: number_of_bits,
+             identifier: n
+           ]}
+        )
+
+      Process.sleep(3000)
+      api
+    end
   end
 
   @doc """
@@ -51,10 +64,10 @@ defmodule SimulationSupervisor do
 
   Method to start the simulation of chord algorithm. Spawn nodes at random intervals and make them join the network
   """
-  def start_simulation(supervisor) do
+  def start_simulation(supervisor, num_nodes, number_of_bits) do
     {:ok, location_server} = start_location_server(supervisor)
     # Start multiple nodes at a specific time interval
-    start_node(supervisor, location_server)
+    start_nodes(supervisor, location_server, num_nodes, number_of_bits)
   end
 
   @doc """

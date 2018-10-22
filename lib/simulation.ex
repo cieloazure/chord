@@ -56,7 +56,7 @@ defmodule Simulation do
 
     ## Calculate the average number of hops for each node
     average_hops = Enum.reduce(results, 0, fn result, acc -> result + acc end) / length(results)
-    Logger.info("Average number of hops are: #{average_hops}")
+    Logger.info("Average number of hops is: #{average_hops}")
   end
 
   defp get_ip_addr() do
@@ -80,7 +80,7 @@ defmodule Simulation do
       data = Enum.random(database)
       _reply = Chord.API.lookup(api, data)
 
-      {item, _from, hops} =
+      {_item, _from, hops} =
         receive do
           {:lookup_result, result} -> result
         end

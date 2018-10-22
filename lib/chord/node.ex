@@ -7,8 +7,8 @@ defmodule Chord.Node do
   use GenServer
   require Logger
 
-  @default_number_of_bits 160
-  @default_size_succ_list 3
+  @default_number_of_bits 24
+  @default_size_succ_list 5
 
   ###             ###
   ###             ###
@@ -124,6 +124,29 @@ defmodule Chord.Node do
     GenServer.cast(node, {:update_succ_list, new_succ_list})
   end
 
+  @doc """
+  Chord.Node.ping_successor
+  """
+  def ping_successor(node) do
+    GenServer.call(node, {:ping_succ})
+  end
+
+  def ping_predeccessor(node) do
+    GenServer.call(node, {:ping_pred})
+  end
+
+  def ping(node) do
+    GenServer.call(node, {:ping})
+  end
+
+  def failed_predecessor(node) do
+    GenServer.cast(node, {:failed_predecessor})
+  end
+
+  def failed_successor(node) do
+    GenServer.cast(node, {:failed_successor})
+  end
+
   ###                      ###
   ###                      ###
   ### GenServer Callbacks  ###
@@ -191,6 +214,12 @@ defmodule Chord.Node do
     # block storage server
     {:ok, block_storage_server} = Chord.Node.BlockStorageServer.start_link(node: self())
 
+    # predeccessor checker
+    predeccessor_checker = spawn(Chord.Node.PredecessorChecker, :run, [self(), nil])
+
+    # successor checker
+    successor_checker = spawn(Chord.Node.SuccessorChecker, :run, [self(), nil])
+
     {:ok,
      [
        ip_addr: ip_addr,
@@ -202,7 +231,9 @@ defmodule Chord.Node do
        finger_table: finger_table,
        finger_fixer: finger_fixer,
        stabalizer: stabalizer,
-       block_storage_server: block_storage_server
+       block_storage_server: block_storage_server,
+       predeccessor_checker: predeccessor_checker,
+       successor_checker: successor_checker
      ]}
   end
 
@@ -261,6 +292,12 @@ defmodule Chord.Node do
 
     # Start the stabalizer for this newly created node
     send(state[:stabalizer], {:run_stabalizer, state[:successor]})
+
+    # start pred checker
+    send(state[:predeccessor_checker], {:run_pred_checker})
+
+    # start succeessor checker
+    send(state[:successor_checker], {:run_succ_checker})
 
     {:noreply, state}
   end
@@ -346,6 +383,41 @@ defmodule Chord.Node do
     {:noreply, state}
   end
 
+  @impl true
+  def handle_cast({:failed_predecessor}, state) do
+    state = Keyword.put(state, :predeccessor, nil)
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_cast({:failed_successor}, state) do
+    new_successor =
+      Enum.find(state[:successor_list], fn successor ->
+        try do
+          reply = Chord.Node.ping(successor[:pid])
+          if reply == :ok, do: true
+        catch
+          :exit, _ ->
+            false
+        end
+      end)
+
+    # replace successor
+    state = Keyword.put(state, :successor, new_successor)
+    # reconcile
+    their_succ_list = Chord.Node.get_succ_list(new_successor[:pid])
+
+    state =
+      if !is_nil(their_succ_list) do
+        [_head | tail] = Enum.reverse(their_succ_list)
+        their_succ_list_trunc = Enum.reverse(tail)
+        our_succ_list = [new_successor | their_succ_list_trunc]
+        Keyword.put(state, :successor_list, our_succ_list)
+      end
+
+    {:noreply, state}
+  end
+
   @doc """
   Chord.Node.handle_call for `:get_predeccessor`
 
@@ -409,9 +481,49 @@ defmodule Chord.Node do
     {:reply, state[:successor_list], state}
   end
 
-  ###### PRIVATE FUNCTIONS ########
+  @impl true
+  def handle_call({:ping_succ}, _from, state) do
+    cond do
+      !is_nil(state[:successor]) and state[:successor][:pid] == self() ->
+        {:reply, :ok, state}
 
-  # Chord.Node.capture_successor_keys
+      !is_nil(state[:successor]) ->
+        reply = Chord.Node.ping(state[:successor][:pid])
+        {:reply, reply, state}
+
+      true ->
+        {:reply, nil, state}
+    end
+  end
+
+  @impl true
+  def handle_call({:ping_pred}, _from, state) do
+    if !is_nil(state[:predecessor]) do
+      reply = Chord.Node.ping(state[:predecessor][:pid])
+      {:reply, reply, state}
+    else
+      {:reply, nil, state}
+    end
+  end
+
+  @impl true
+  def handle_call({:ping}, _from, state) do
+    {:reply, :ok, state}
+  end
+
+  @impl true
+  def terminate(_reason, state) do
+    IO.inspect("Terminating node")
+    # TODO: Implement an agent to recover data from crash
+    Process.exit(state[:block_storage_server], :kill)
+    Process.exit(state[:finger_fixer], :kill)
+    Process.exit(state[:successor_checker], :kill)
+    Process.exit(state[:predeccessor_checker], :kill)
+    Process.exit(state[:stabalizer], :kill)
+    true
+  end
+
+  ###### PRIVATE FUNCTIONS ########
   # A helper function to transfer keys belonging to us from successor 
   defp capture_successor_keys(successor_pid, our_identifier, our_pid) do
     Chord.Node.transfer_keys(successor_pid, our_identifier, our_pid)
