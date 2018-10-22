@@ -8,6 +8,6 @@ defmodule Chord do
   Start the Simulation Application
   """
   def start(_type, _args) do
-    Chord.SimulationSupervisor.start_link([])
+    SimulationSupervisor.start_link([])
   end
 end

@@ -36,8 +36,8 @@ defmodule Chord.API do
 
   Lookup the data in the chord network
   """
-  def lookup(api, data) do
-    GenServer.call(api, {:lookup, data})
+  def lookup(api, data, identifier \\ nil) do
+    GenServer.call(api, {:lookup, data, identifier})
   end
 
   ###                      ###
@@ -67,7 +67,7 @@ defmodule Chord.API do
       )
 
     Chord.Node.join(node)
-    {:ok, node}
+    {:ok, {node, number_of_bits}}
   end
 
   @doc """
@@ -76,17 +76,24 @@ defmodule Chord.API do
   Calculates the hash for the data, finds it's node and inserts it into that node
   """
   @impl true
-  def handle_call({:insert, data, identifier}, _from, node) do
+  def handle_call({:insert, data, identifier}, {pid, ref}, {node, number_of_bits}) do
     # Get a unique key for the data
-    key = identifier || :crypto.hash(:sha, data)
+    key = identifier || :crypto.hash(:sha, data) |> binary_part(0, div(number_of_bits, 8))
+    GenServer.reply({pid, ref}, {:reply, :ok})
 
     # Find a node responsible for storing the key
-    successor = Chord.Node.find_successor(node, key)
+    _reply = Chord.Node.find_successor(node, key, 0)
+
+    {successor, _hops} =
+      receive do
+        {:successor, {successor, hops}} -> {successor, hops}
+      end
 
     # Successor may be node itself or some other node in the ring
     # Write the data using block storage server of that node
     response = Chord.Node.insert(successor[:pid], key, data)
-    {:reply, response, node}
+    send(pid, {:insert_result, {successor, response}})
+    {:noreply, {node, number_of_bits}}
   end
 
   @doc """
@@ -95,15 +102,22 @@ defmodule Chord.API do
   Calculates the hash for the data and finds the node it resides on 
   """
   @impl true
-  def handle_call({:lookup, data}, _from, node) do
+  def handle_call({:lookup, data, identifier}, {pid, ref}, {node, number_of_bits}) do
     # Get the hash value for the data
-    key = :crypto.hash(:sha, data)
+    key = identifier || :crypto.hash(:sha, data) |> binary_part(0, div(number_of_bits, 8))
+    GenServer.reply({pid, ref}, {:reply, :ok})
 
     # Find the node
-    successor = Chord.Node.find_successor(node, key)
+    _reply = Chord.Node.find_successor(node, key, 0)
+
+    {successor, hops} =
+      receive do
+        {:successor, {successor, hops}} -> {successor, hops}
+      end
 
     # Read  the data using block storage server of that node
     {item, from} = Chord.Node.lookup(successor[:pid], key)
-    {:reply, {item, from}, node}
+    send(pid, {:lookup_result, {item, from, hops}})
+    {:noreply, {node, number_of_bits}}
   end
 end

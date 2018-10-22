@@ -24,6 +24,14 @@ defmodule CircularIdentifierSpace do
   Returns boolean `true` if it lies in the interval  or `false` if it doesn't lie in the interval
   """
   def half_open_interval_check(arg, lower_limit, upper_limit) do
+    arg = if is_binary(arg), do: :crypto.bytes_to_integer(arg), else: arg
+
+    lower_limit =
+      if is_binary(lower_limit), do: :crypto.bytes_to_integer(lower_limit), else: lower_limit
+
+    upper_limit =
+      if is_binary(upper_limit), do: :crypto.bytes_to_integer(upper_limit), else: upper_limit
+
     cond do
       arg == upper_limit ->
         true
@@ -50,6 +58,14 @@ defmodule CircularIdentifierSpace do
   Returns boolean `true` if it does lie in the interval and `false` if it doesn't 
   """
   def open_interval_check(arg, lower_limit, upper_limit) do
+    arg = if is_binary(arg), do: :crypto.bytes_to_integer(arg), else: arg
+
+    lower_limit =
+      if is_binary(lower_limit), do: :crypto.bytes_to_integer(lower_limit), else: lower_limit
+
+    upper_limit =
+      if is_binary(upper_limit), do: :crypto.bytes_to_integer(upper_limit), else: upper_limit
+
     cond do
       lower_limit == upper_limit ->
         true

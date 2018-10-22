@@ -1,4 +1,4 @@
-defmodule Chord.SimulationSupervisor do
+defmodule SimulationSupervisor do
   @moduledoc """
   Simulation Supervisor
 
