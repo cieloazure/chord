@@ -8,6 +8,7 @@ defmodule Chord.Node do
   require Logger
 
   @default_number_of_bits 160
+  @default_size_succ_list 3
 
   ###             ###
   ###             ###
@@ -105,6 +106,24 @@ defmodule Chord.Node do
     GenServer.cast(node, {:transfer_keys, predeccessor_identifier, predeccessor_pid})
   end
 
+  @doc """
+  Chord.Node.get_succ_list
+
+  An api method to get the succ list of a node
+  """
+  def get_succ_list(node) do
+    GenServer.call(node, {:get_succ_list})
+  end
+
+  @doc """
+  Chord.Node.update_succ_list
+
+  An api method to update the succ list
+  """
+  def update_succ_list(node, new_succ_list) do
+    GenServer.cast(node, {:update_succ_list, new_succ_list})
+  end
+
   ###                      ###
   ###                      ###
   ### GenServer Callbacks  ###
@@ -179,6 +198,7 @@ defmodule Chord.Node do
        location_server: location_server,
        predeccessor: nil,
        successor: nil,
+       successor_list: nil,
        finger_table: finger_table,
        finger_fixer: finger_fixer,
        stabalizer: stabalizer,
@@ -221,7 +241,14 @@ defmodule Chord.Node do
       else
         state = Keyword.put(state, :predeccessor, nil)
         succ_state = [identifier: state[:identifier], ip_addr: state[:ip_addr], pid: self()]
-        Keyword.put(state, :successor, succ_state)
+        state = Keyword.put(state, :successor, succ_state)
+
+        succ_list =
+          for _n <- 1..@default_size_succ_list do
+            succ_state
+          end
+
+        Keyword.put(state, :successor_list, succ_list)
       end
 
     # keys from successor which belong to us
@@ -309,6 +336,17 @@ defmodule Chord.Node do
   end
 
   @doc """
+  Chord.Node.handle_cast for `:update_succ_list`
+
+  A callback method to update the successor list
+  """
+  @impl true
+  def handle_cast({:update_succ_list, new_succ_list}, state) do
+    state = Keyword.put(state, :successor_list, new_succ_list)
+    {:noreply, state}
+  end
+
+  @doc """
   Chord.Node.handle_call for `:get_predeccessor`
 
   A callback to get the predeccessor of the node. This is needed in stabalizer in order to change the successor if a new node has joined
@@ -355,96 +393,27 @@ defmodule Chord.Node do
   """
   @impl true
   def handle_call({:find_successor, id, hops}, from, state) do
-    _pid = spawn(Chord.Node, :find_successor_concurrent, [id, hops, from, state, self()])
+    _pid =
+      spawn(Chord.Node.FindSuccessor, :find_successor_concurrent, [id, hops, from, state, self()])
+
     {:reply, :ok, state}
   end
 
-  ###### PRIVATE FUNCTIONS ########
+  @doc """
+  Chord.Node.handle_call for `:get_succ_list`
 
-  # Chord.Node.closest_preceding_node
-  # A helper function for `find_successor` callback implementation which
-  # iterates through the finger table to find the node which is closest
-  # predeccessor of the given id
-  defp closest_preceding_node(id, state) do
-    item =
-      Enum.reverse(state[:finger_table])
-      |> Enum.find(fn {_idx,
-                       [
-                         identifier: entry_identifier,
-                         ip_addr: _entry_ip_addr,
-                         pid: _entry_pid
-                       ]} ->
-        CircularIdentifierSpace.open_interval_check(entry_identifier, state[:identifier], id)
-      end)
-
-    if !is_nil(item) do
-      {_key, value} = item
-      value
-    else
-      [identifier: state[:identifier], ip_addr: state[:ip_addr], pid: self()]
-    end
+  A callback method to return the node's successor list
+  """
+  @impl true
+  def handle_call({:get_succ_list}, _from, state) do
+    {:reply, state[:successor_list], state}
   end
+
+  ###### PRIVATE FUNCTIONS ########
 
   # Chord.Node.capture_successor_keys
   # A helper function to transfer keys belonging to us from successor 
   defp capture_successor_keys(successor_pid, our_identifier, our_pid) do
     Chord.Node.transfer_keys(successor_pid, our_identifier, our_pid)
-  end
-
-  def find_successor_concurrent(id, hops, {pid, _ref}, state, our_pid) do
-    # Check if connected to chord 
-    if is_nil(state[:successor]) do
-      send(pid, {:successor, {nil, hops}})
-      # {:reply, nil, state}
-    else
-      if CircularIdentifierSpace.half_open_interval_check(
-           id,
-           state[:identifier],
-           state[:successor][:identifier]
-         ) do
-        # {:reply, {state[:successor], hops}, state}
-        send(pid, {:successor, {state[:successor], hops}})
-      else
-        # preceding_node = closest_preceding_node(id, state)
-        item =
-          Enum.reverse(state[:finger_table])
-          |> Enum.find(fn {_idx,
-                           [
-                             identifier: entry_identifier,
-                             ip_addr: _entry_ip_addr,
-                             pid: _entry_pid
-                           ]} ->
-            CircularIdentifierSpace.open_interval_check(entry_identifier, state[:identifier], id)
-          end)
-
-        preceding_node =
-          if !is_nil(item) do
-            {_key, value} = item
-            value
-          else
-            [identifier: state[:identifier], ip_addr: state[:ip_addr], pid: our_pid]
-          end
-
-        if preceding_node[:pid] == our_pid do
-          self_successor = [
-            identifier: state[:identifier],
-            ip_addr: state[:ip_addr],
-            pid: our_pid
-          ]
-
-          send(pid, {:successor, {self_successor, hops}})
-          # {:reply, {self_successor, hops}, state}
-        else
-          hops = hops + 1
-          _reply = Chord.Node.find_successor(preceding_node[:pid], id, hops)
-
-          # {:reply, {successor, hops}, state}
-          receive do
-            {:successor, {successor, hops}} ->
-              send(pid, {:successor, {successor, hops}})
-          end
-        end
-      end
-    end
   end
 end

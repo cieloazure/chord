@@ -283,4 +283,44 @@ defmodule Chord.NodeTest do
       end)
     end
   end
+
+  describe "Successor list" do
+    test "correct succ list is built" do
+      {:ok, ls} = Chord.LocationServer.start_link([])
+
+      {:ok, api} =
+        Chord.Node.start_link(
+          ip_addr: "192.168.0.1",
+          location_server: ls,
+          number_of_bits: 8,
+          identifier: 1
+        )
+
+      Chord.Node.join(api)
+      Process.sleep(5000)
+
+      {:ok, api2} =
+        Chord.Node.start_link(
+          ip_addr: "192.168.0.2",
+          location_server: ls,
+          number_of_bits: 8,
+          identifier: 2
+        )
+
+      Chord.Node.join(api2)
+      Process.sleep(5000)
+
+      {:ok, api3} =
+        Chord.Node.start_link(
+          ip_addr: "192.168.0.3",
+          location_server: ls,
+          number_of_bits: 8,
+          identifier: 3
+        )
+
+      Chord.Node.join(api3)
+      Process.sleep(5000)
+      Process.sleep(5_000_000)
+    end
+  end
 end

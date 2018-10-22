@@ -70,6 +70,22 @@ defmodule Chord.Node.Stabalizer do
             ip_addr: node_ip_addr,
             pid: node_pid
           )
+
+          # Reconcile successor list with successor, remove last entry and
+          # prepend the successor to the list and store it as our successor
+          # list
+          their_succ_list = Chord.Node.get_succ_list(successor[:pid])
+          our_old_succ_list = Chord.Node.get_succ_list(node_pid)
+
+          if !is_nil(their_succ_list) do
+            [_head | tail] = Enum.reverse(their_succ_list)
+            their_succ_list_trunc = Enum.reverse(tail)
+            our_succ_list = [successor | their_succ_list_trunc]
+
+            if our_succ_list != our_old_succ_list do
+              Chord.Node.update_succ_list(node_pid, our_succ_list)
+            end
+          end
         end
 
         run(node_successor, node_identifier, node_ip_addr, node_pid, ticker_pid)

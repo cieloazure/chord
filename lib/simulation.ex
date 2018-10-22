@@ -55,7 +55,8 @@ defmodule Simulation do
     results = List.flatten(results)
 
     ## Calculate the average number of hops for each node
-    Enum.reduce(results, 0, fn result, acc -> result + acc end) / length(results)
+    average_hops = Enum.reduce(results, 0, fn result, acc -> result + acc end) / length(results)
+    Logger.info("Average number of hops are: #{average_hops}")
   end
 
   defp get_ip_addr() do
@@ -71,8 +72,11 @@ defmodule Simulation do
   end
 
   defp request(api, database, num_requests) do
-    for _n <- 0..num_requests do
+    Logger.debug("Sending requests from #{inspect(api)}")
+
+    for n <- 1..num_requests do
       Process.sleep(1000)
+      ProgressBar.render(n, num_requests)
       data = Enum.random(database)
       _reply = Chord.API.lookup(api, data)
 
@@ -80,8 +84,6 @@ defmodule Simulation do
         receive do
           {:lookup_result, result} -> result
         end
-
-      Logger.debug(item)
 
       hops
     end
