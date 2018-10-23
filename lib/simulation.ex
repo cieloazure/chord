@@ -1,6 +1,14 @@
 defmodule Simulation do
+  @moduledoc """
+  A module to run the simulation
+  """
   require Logger
 
+  @doc """
+  Simulation.run 
+
+  Main process to run the simulation. Accepts number of nodes, number of requests, number of bits and number of records as arguments
+  """
   def run(num_nodes \\ 1000, num_requests \\ 10, number_of_bits \\ 40, num_records \\ 1000) do
     # create a location server for the nodes to get a node to join chord
     {:ok, location_server} = Chord.LocationServer.start_link([])
@@ -19,11 +27,11 @@ defmodule Simulation do
             number_of_bits: number_of_bits
           )
 
-        Process.sleep(200)
+        Process.sleep(150)
         api
       end
 
-    Logger.info("Waiting for stabalization...")
+    Logger.info("Waiting 10s for stabalization...")
     Process.sleep(10000)
 
     # create dummy database and insert that data into the chord network using
@@ -59,6 +67,7 @@ defmodule Simulation do
     Logger.info("Average number of hops is: #{average_hops}")
   end
 
+  # Get a random ip address
   defp get_ip_addr() do
     to_string(:rand.uniform(255)) <>
       "." <>
@@ -66,17 +75,18 @@ defmodule Simulation do
       "." <> to_string(:rand.uniform(255)) <> "." <> to_string(:rand.uniform(255))
   end
 
+  # Get a random string for data
   defp get_random_string() do
     length = :rand.uniform(100)
     :crypto.strong_rand_bytes(length) |> Base.url_encode64() |> binary_part(0, length)
   end
 
+  # Send num_requests for a api asynchronously
   defp request(api, database, num_requests) do
     Logger.debug("Sending requests from #{inspect(api)}")
 
     for n <- 1..num_requests do
       Process.sleep(1000)
-      ProgressBar.render(n, num_requests)
       data = Enum.random(database)
       _reply = Chord.API.lookup(api, data)
 
