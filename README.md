@@ -3,6 +3,15 @@
 
 A simulation of Chord algorithm based on [paper](https://pdos.csail.mit.edu/papers/ton:chord/paper-ton.pdf)
 
+### Install dependencies
+```
+mix deps.get
+```
+
+### Compile 
+```
+mix compile 
+```
 
 ### How to run the project? 
 
