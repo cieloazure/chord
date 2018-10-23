@@ -294,10 +294,10 @@ defmodule Chord.Node do
     send(state[:stabalizer], {:run_stabalizer, state[:successor]})
 
     # start pred checker
-    send(state[:predeccessor_checker], {:run_pred_checker})
+    # send(state[:predeccessor_checker], {:run_pred_checker})
 
     # start succeessor checker
-    send(state[:successor_checker], {:run_succ_checker})
+    # send(state[:successor_checker], {:run_succ_checker})
 
     {:noreply, state}
   end
@@ -385,12 +385,15 @@ defmodule Chord.Node do
 
   @impl true
   def handle_cast({:failed_predecessor}, state) do
+    IO.inspect("--------in failed predecessor----------")
     state = Keyword.put(state, :predeccessor, nil)
     {:noreply, state}
   end
 
   @impl true
   def handle_cast({:failed_successor}, state) do
+    IO.inspect("---------in failed successor----------")
+
     new_successor =
       Enum.find(state[:successor_list], fn successor ->
         try do
@@ -513,14 +516,14 @@ defmodule Chord.Node do
 
   @impl true
   def terminate(_reason, state) do
-    IO.inspect("Terminating node")
+    Logger.debug("Terminating node")
+    Logger.debug(inspect(state))
     # TODO: Implement an agent to recover data from crash
     Process.exit(state[:block_storage_server], :kill)
     Process.exit(state[:finger_fixer], :kill)
     Process.exit(state[:successor_checker], :kill)
     Process.exit(state[:predeccessor_checker], :kill)
     Process.exit(state[:stabalizer], :kill)
-    true
   end
 
   ###### PRIVATE FUNCTIONS ########

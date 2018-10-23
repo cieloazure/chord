@@ -1,6 +1,6 @@
 defmodule Chord.Node.SuccessorChecker do
   require Logger
-  @mongering_interval 1000
+  @mongering_interval 10000
 
   @doc """
   Start the ticker for stabalizer
@@ -25,8 +25,8 @@ defmodule Chord.Node.SuccessorChecker do
           _response = Chord.Node.ping_successor(node_pid)
         catch
           :exit, _ ->
-            IO.inspect("#{node_pid} caught timeout")
             Chord.Node.failed_successor(node_pid)
+            IO.inspect("#{inspect(node_pid)} caught timeout")
         end
 
         run(node_pid, ticker_pid)

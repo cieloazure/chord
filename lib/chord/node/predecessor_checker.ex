@@ -25,8 +25,8 @@ defmodule Chord.Node.PredecessorChecker do
           _response = Chord.Node.ping_predeccessor(node_pid)
         catch
           :exit, _ ->
-            IO.inspect("#{node_pid} caught pred timeout")
             Chord.Node.failed_predecessor(node_pid)
+            IO.inspect("#{inspect(node_pid)} caught pred timeout")
         end
 
         run(node_pid, ticker_pid)

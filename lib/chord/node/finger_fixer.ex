@@ -1,6 +1,6 @@
 defmodule Chord.Node.FingerFixer do
   require Logger
-  @mongering_interval 1000
+  @mongering_interval 100
 
   @doc """
   Chord.Node.FingerFixer.start
